@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BookFlip - Online PDF Reader</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="logo">
+            BookFlip
+        </div>
+        <div class="header-actions">
+            <button class="icon-btn" onclick="openModal('aboutModal')" title="About BookFlip">
+                ℹ️
+            </button>
+            <button class="icon-btn" onclick="openModal('helpModal')" title="Help & Tutorial">
+                ❓
+            </button>
+            <button class="btn btn-secondary" id="loginBtn" onclick="openModal('loginModal')">
+                👤 Login
+            </button>
+            <button class="btn btn-secondary" id="userBtn" onclick="toggleUserMenu()" style="display: none;">
+                👤 <span id="usernameDisplay"></span>
+            </button>
+            <!-- User dropdown menu -->
+            <div id="userMenu" class="user-menu">
+                <a href="#" onclick="logout()">🔓 Logout</a>
+                <a href="#" onclick="showProfile()">👤 Profile</a>
+            </div>
+            <button class="btn btn-primary" onclick="scrollToUpload()">
+                📤 Upload PDF
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <div class="container" id="uploadContainer">
+            <h1 class="title">BookFlip</h1>
+            <p class="subtitle">Transform your PDFs into beautiful, interactive books</p>
+            
+            <div class="upload-section" id="uploadSection">
+                <span class="upload-icon">📖</span>
+                <h3 class="upload-text">Upload Your PDF Document</h3>
+                <p class="upload-subtext">Drag and drop a PDF file here or click to browse<br>
+                <small>Supports files up to 100MB • PDF format only</small></p>
+                <input type="file" id="fileInput" accept=".pdf">
+                <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+                    📁 Choose PDF File
+                </button>
+                
+                <div class="file-info" id="fileInfo">
+                    <strong>Selected file:</strong> <span id="fileName"></span><br>
+                    <strong>Size:</strong> <span id="fileSize"></span>
+                </div>
+            </div>
+
+            <div class="progress-bar" id="progressBar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+
+            <div class="message" id="message"></div>
+
+            <div class="file-list" id="fileList"></div>
+
+            <!-- Features Section -->
+            <div class="features">
+                <h3>Why Choose BookFlip?</h3>
+                <div class="feature-grid">
+                    <div class="feature-item">
+                        <span class="feature-icon">📖</span>
+                        <strong>Book-like Experience</strong>
+                        <p>Realistic page flipping animation</p>
+                    </div>
+                    <div class="feature-item">
+                        <span class="feature-icon">🔍</span>
+                        <strong>Search & Navigate</strong>
+                        <p>Find content quickly and easily</p>
+                    </div>
+                    <div class="feature-item">
+                        <span class="feature-icon">💾</span>
+                        <strong>Bookmark Pages</strong>
+                        <p>Save your reading progress</p>
+                    </div>
+                    <div class="feature-item">
+                        <span class="feature-icon">📱</span>
+                        <strong>Mobile Friendly</strong>
+                        <p>Read anywhere, anytime</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- About Modal -->
+    <div id="aboutModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('aboutModal')">&times;</span>
+            <h2>📖 About BookFlip</h2>
+            <p><strong>BookFlip</strong> is an innovative online PDF reader that transforms your documents into an immersive book-reading experience.</p>
+            
+            <h3>✨ Features:</h3>
+            <ul style="margin: 1rem 0; padding-left: 1.5rem;">
+                <li>Realistic page-flipping animations</li>
+                <li>Intuitive navigation controls</li>
+                <li>Search within documents</li>
+                <li>Bookmark and highlight functionality</li>
+                <li>Mobile-responsive design</li>
+                <li>Secure file handling</li>
+            </ul>
+            
+            <h3>🛡️ Privacy & Security:</h3>
+            <p>Your files are processed securely and are not stored permanently on our servers. We respect your privacy and data security.</p>
+            
+            <p style="margin-top: 1rem; color: #8b4513; font-style: italic;">
+                Version 1.0 • Built with ❤️ for book lovers
+            </p>
+        </div>
+    </div>
+
+    <!-- Help Modal -->
+    <div id="helpModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('helpModal')">&times;</span>
+            <h2>❓ Help & Tutorial</h2>
+            
+            <h3>🚀 How to Use BookFlip:</h3>
+            <ol style="margin: 1rem 0; padding-left: 1.5rem;">
+                <li><strong>Upload:</strong> Click "Choose PDF File" or drag & drop your PDF</li>
+                <li><strong>Wait:</strong> Let BookFlip process your document</li>
+                <li><strong>Read:</strong> Enjoy the book-like reading experience</li>
+                <li><strong>Navigate:</strong> Use arrow keys, mouse, or touch to flip pages</li>
+            </ol>
+            
+            <h3>📋 Supported Features:</h3>
+            <ul style="margin: 1rem 0; padding-left: 1.5rem;">
+                <li>PDF files up to 100MB</li>
+                <li>All standard PDF documents</li>
+                <li>Text-based and image-based PDFs</li>
+                <li>Multi-page documents</li>
+            </ul>
+            
+            <h3>💡 Tips:</h3>
+            <ul style="margin: 1rem 0; padding-left: 1.5rem;">
+                <li>Use fullscreen mode for better reading experience</li>
+                <li>Try keyboard shortcuts for faster navigation</li>
+                <li>Bookmark important pages for quick access</li>
+            </ul>
+            
+            <p style="margin-top: 1rem; padding: 1rem; background: #f0f8ff; border-radius: 5px;">
+                <strong>Need more help?</strong> Contact our support team or check our documentation for advanced features.
+            </p>
+        </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div id="loginModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('loginModal')">&times;</span>
+            <h2 id="authTitle">👤 Login to BookFlip</h2>
+            
+            <!-- Login Form -->
+            <form id="loginForm" style="margin: 1.5rem 0;">
+                <div class="form-group">
+                    <label for="loginEmail" class="form-label">Email:</label>
+                    <input type="email" id="loginEmail" class="form-input" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="loginPassword" class="form-label">Password:</label>
+                    <input type="password" id="loginPassword" class="form-input" required>
+                </div>
+                
+                <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; padding: 1rem;">
+                    🔐 Sign In
+                </button>
+            </form>
+            
+            <!-- Register Form (hidden by default) -->
+            <form id="registerForm" style="margin: 1.5rem 0; display: none;">
+                <div class="form-group">
+                    <label for="registerUsername" class="form-label">Username:</label>
+                    <input type="text" id="registerUsername" class="form-input" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="registerEmail" class="form-label">Email:</label>
+                    <input type="email" id="registerEmail" class="form-input" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="registerPassword" class="form-label">Password:</label>
+                    <input type="password" id="registerPassword" class="form-input" required minlength="6">
+                    <small style="color: #8b4513;">Minimum 6 characters</small>
+                </div>
+                
+                <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; padding: 1rem;">
+                    📝 Create Account
+                </button>
+            </form>
+            
+            <div style="text-align: center; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #eee;">
+                <p id="switchAuthText">Don't have an account? <a href="#" id="switchAuthLink" style="color: #8b4513; text-decoration: none; font-weight: 500;">Sign up here</a></p>
+                <p id="forgotPassword" style="margin-top: 0.5rem;"><a href="#" style="color: #8b4513; text-decoration: none;">Forgot your password?</a></p>
+            </div>
+            
+            <div id="authMessage" class="message" style="margin-top: 1rem;"></div>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>
