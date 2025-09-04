@@ -1,10 +1,47 @@
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>{{ filename }} - BookFlip Reader</title>
+    <link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles2.css') }}">
 </head>
 <body>
+    <div class="header">
+        <div class="book-title" id="bookTitle">{{ filename }}</div>
+        <div class="header-controls">
+            <a href="/" class="btn btn-secondary">← Back to Library</a>
+        </div>
+    </div>
+
+    <div class="book-container">
+        <div class="book">
+            <div class="page-container">
+                <div class="page" id="leftPage">
+                    <div class="page-loading">
+                        <div class="spinner"></div>
+                        <div>Loading page...</div>
+                    </div>
+                </div>
+                <div class="page" id="rightPage">
+                    <div class="page-loading">
+                        <div class="spinner"></div>
+                        <div>Loading page...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="navigation">
+        <button class="nav-btn" id="prevBtn" onclick="previousPage()" disabled title="Previous pages">‹</button>
+        <div class="page-info">
+            <span id="currentPageDisplay">1-2</span> / <span id="totalPagesDisplay">0</span>
+        </div>
+        <button class="nav-btn" id="nextBtn" onclick="nextPage()" title="Next pages">›</button>
+    </div>
+    <script src="{{ url_for('static', filename='js/script2.js') }}"></script>
     
 </body>
 </html>

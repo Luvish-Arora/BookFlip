@@ -602,7 +602,6 @@ def upload_file():
         return jsonify({'error': f'Database error: {str(e)}'}), 500
     except Exception as e:
         return jsonify({'error': f'Upload failed: {str(e)}'}), 500
-
 @app.route('/files')
 @login_required
 def list_files():
@@ -630,61 +629,140 @@ def list_files():
                 )
                 files = cursor.fetchall()
                 
+                print(f"Found {len(files)} files for user {session['user_id']}")  # Debug
+                
                 if files:
                     # Files from enhanced table
                     for file in files:
-                        file_list.append({
+                        file_data = {
                             'file_id': file[0],
-                            'filename': file[1],
+                            'filename': file[1],  # This should match JavaScript expectation
                             'stored_filename': file[2],
                             'size': file[3],
                             'size_display': file[4],
                             'size_mb': round(file[3] / (1024*1024), 2) if file[3] else 0,
                             'upload_date': file[5].strftime('%Y-%m-%d') if file[5] else None,
                             'last_read': file[6].strftime('%Y-%m-%d') if file[6] else None
-                        })
+                        }
+                        file_list.append(file_data)
+                        print(f"Added file: {file_data['filename']}")  # Debug
+                        
             except Error as e:
-                print(f"⚠️  Warning: Could not read from files table: {e}")
+                print(f"Warning: Could not read from files table: {e}")
         
         # If no files found in files table or table doesn't exist, check book table
         if not file_list:
-            # Check if book table exists
+            print("No files in files table, checking book table...")
+            # Check book table
             cursor.execute("SHOW TABLES LIKE 'book'")
             book_table_exists = cursor.fetchone() is not None
-            
-            if not book_table_exists:
-                print("🔧 Book table missing, creating it...")
-                ensure_table_exists('book')
-            
-            # Fallback to book table for backward compatibility
-            try:
+            if book_table_exists:
                 cursor.execute(
-                    'SELECT book_title, size, last_read FROM book WHERE username = %s ORDER BY last_read DESC',
+                    'SELECT book_title, size, last_read, created_at FROM book WHERE username = %s ORDER BY last_read DESC',
                     (session.get('email', session['username']),)
                 )
                 books = cursor.fetchall()
-                
                 for book in books:
-                    file_list.append({
-                        'file_id': None,  # No file_id in old table
-                        'filename': book[0],
-                        'stored_filename': book[0],
-                        'size_display': book[1],
-                        'last_read': book[2].strftime('%Y-%m-%d') if book[2] else None,
-                        'upload_date': book[2].strftime('%Y-%m-%d') if book[2] else None
-                    })
-            except Error as e:
-                print(f"⚠️  Warning: Could not read from book table: {e}")
+                    file_data = {
+                        'file_id': book,                # book_title
+                        'filename': book,               # book_title
+                        'stored_filename': book,        # Just for frontend expectations; not the actual file path
+                        'size': None,                      # Could use book[1] if stored as bytes
+                        'size_display': book[1],           # string like "2.35 MB"
+                        'upload_date': str(book) if book else None,   # created_at
+                        'last_read': str(book[2]) if book[2] else None      # last_read
+                    }
+                    file_list.append(file_data)
+
         
         cursor.close()
         connection.close()
         
+        print(f"Returning {len(file_list)} files")  # Debug
         return jsonify({'files': file_list})
         
     except Error as e:
+        print(f"Database error in list_files: {e}")  # Debug
         return jsonify({'error': f'Database error: {str(e)}'}), 500
     except Exception as e:
+        print(f"General error in list_files: {e}")  # Debug
         return jsonify({'error': f'Failed to list files: {str(e)}'}), 500
+@app.route('/debug-user-files')
+@login_required
+def debug_user_files():
+    """Debug endpoint to check user files and session data"""
+    try:
+        connection = get_db_connection()
+        if connection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+        
+        cursor = connection.cursor()
+        debug_info = {
+            'session_data': {
+                'user_id': session.get('user_id'),
+                'username': session.get('username'),
+                'email': session.get('email')
+            },
+            'tables': {}
+        }
+        
+        # Check files table
+        try:
+            cursor.execute("SHOW TABLES LIKE 'files'")
+            files_table_exists = cursor.fetchone() is not None
+            debug_info['tables']['files_exists'] = files_table_exists
+            
+            if files_table_exists:
+                # Get all files for this user
+                cursor.execute(
+                    'SELECT file_id, original_filename, user_id FROM files WHERE user_id = %s',
+                    (session['user_id'],)
+                )
+                files = cursor.fetchall()
+                debug_info['tables']['files_data'] = [
+                    {'file_id': f[0], 'filename': f[1], 'user_id': f[2]} for f in files
+                ]
+                
+                # Get total files count
+                cursor.execute('SELECT COUNT(*) FROM files')
+                total_files = cursor.fetchone()[0]
+                debug_info['tables']['total_files_in_db'] = total_files
+                
+        except Error as e:
+            debug_info['tables']['files_error'] = str(e)
+        
+        # Check book table
+        try:
+            cursor.execute("SHOW TABLES LIKE 'book'")
+            book_table_exists = cursor.fetchone() is not None
+            debug_info['tables']['book_exists'] = book_table_exists
+            
+            if book_table_exists:
+                # Get all books for this user
+                cursor.execute(
+                    'SELECT book_title, username FROM book WHERE username = %s',
+                    (session.get('email', session['username']),)
+                )
+                books = cursor.fetchall()
+                debug_info['tables']['book_data'] = [
+                    {'title': b[0], 'username': b[1]} for b in books
+                ]
+                
+                # Get total books count
+                cursor.execute('SELECT COUNT(*) FROM book')
+                total_books = cursor.fetchone()[0]
+                debug_info['tables']['total_books_in_db'] = total_books
+                
+        except Error as e:
+            debug_info['tables']['book_error'] = str(e)
+        
+        cursor.close()
+        connection.close()
+        
+        return jsonify(debug_info)
+        
+    except Exception as e:
+        return jsonify({'error': f'Debug failed: {str(e)}'}), 500
 
 @app.route('/delete-file/<file_identifier>', methods=['DELETE'])
 @login_required
@@ -844,6 +922,196 @@ def too_large(e):
 def server_error(e):
     return jsonify({'error': 'Internal server error'}), 500
 
+# Add these routes to your Flask app
+
+@app.route('/book/<file_id>')
+@login_required
+def view_book(file_id):
+    """Serve the book reader page with PDF data"""
+    try:
+        connection = get_db_connection()
+        if connection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+        
+        cursor = connection.cursor()
+        
+        # Get file information
+        cursor.execute(
+            '''SELECT original_filename, stored_filename FROM files 
+               WHERE file_id = %s AND user_id = %s''',
+            (file_id, session['user_id'])
+        )
+        file_info = cursor.fetchone()
+        
+        if not file_info:
+            cursor.close()
+            connection.close()
+            return "File not found", 404
+        
+        cursor.close()
+        connection.close()
+        
+        # Pass file info to template
+        return render_template('book.html', 
+                             file_id=file_id,
+                             filename=file_info[0],
+                             stored_filename=file_info[1])
+        
+    except Exception as e:
+        return f"Error loading book: {str(e)}", 500
+
+@app.route('/api/book/<file_id>/pages')
+@login_required
+def get_book_pages(file_id):
+    """Get total pages count for a PDF"""
+    try:
+        import PyMuPDF as fitz  # You'll need: pip install PyMuPDF
+        
+        connection = get_db_connection()
+        if connection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+        
+        cursor = connection.cursor()
+        
+        # Get stored filename
+        cursor.execute(
+            '''SELECT stored_filename FROM files 
+               WHERE file_id = %s AND user_id = %s''',
+            (file_id, session['user_id'])
+        )
+        file_info = cursor.fetchone()
+        
+        if not file_info:
+            return jsonify({'error': 'File not found'}), 404
+        
+        cursor.close()
+        connection.close()
+        
+        # Open PDF and get page count
+        pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], file_info[0])
+        if not os.path.exists(pdf_path):
+            return jsonify({'error': 'PDF file not found on disk'}), 404
+        
+        pdf_doc = fitz.open(pdf_path)
+        total_pages = pdf_doc.page_count
+        pdf_doc.close()
+        
+        return jsonify({
+            'success': True,
+            'total_pages': total_pages,
+            'file_id': file_id
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to get page count: {str(e)}'}), 500
+
+@app.route('/api/book/<file_id>/page/<int:page_num>')
+@login_required
+def get_book_page(file_id, page_num):
+    """Get a specific page as base64 image"""
+    try:
+        import PyMuPDF as fitz
+        import base64
+        
+        connection = get_db_connection()
+        if connection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+        
+        cursor = connection.cursor()
+        
+        # Get stored filename
+        cursor.execute(
+            '''SELECT stored_filename FROM files 
+               WHERE file_id = %s AND user_id = %s''',
+            (file_id, session['user_id'])
+        )
+        file_info = cursor.fetchone()
+        
+        if not file_info:
+            return jsonify({'error': 'File not found'}), 404
+        
+        cursor.close()
+        connection.close()
+        
+        # Open PDF and get page
+        pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], file_info[0])
+        if not os.path.exists(pdf_path):
+            return jsonify({'error': 'PDF file not found on disk'}), 404
+        
+        pdf_doc = fitz.open(pdf_path)
+        
+        # Validate page number
+        if page_num < 1 or page_num > pdf_doc.page_count:
+            pdf_doc.close()
+            return jsonify({'error': 'Invalid page number'}), 400
+        
+        # Get page (0-indexed)
+        page = pdf_doc.load_page(page_num - 1)
+        
+        # Render page to image (higher quality)
+        mat = fitz.Matrix(2.0, 2.0)  # 2x zoom for better quality
+        pix = page.get_pixmap(matrix=mat)
+        img_data = pix.tobytes("png")
+        
+        # Convert to base64
+        img_base64 = base64.b64encode(img_data).decode()
+        
+        pdf_doc.close()
+        
+        return jsonify({
+            'success': True,
+            'page_num': page_num,
+            'image': f"data:image/png;base64,{img_base64}",
+            'total_pages': pdf_doc.page_count
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to get page: {str(e)}'}), 500
+
+# Add this to handle file selection from library
+@app.route('/select-file/<file_id>', methods=['POST'])
+@login_required
+def select_file(file_id):
+    """Handle file selection from library - returns redirect info"""
+    try:
+        connection = get_db_connection()
+        if connection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+        
+        cursor = connection.cursor()
+        
+        # Verify file exists and belongs to user
+        cursor.execute(
+            '''SELECT original_filename FROM files 
+               WHERE file_id = %s AND user_id = %s''',
+            (file_id, session['user_id'])
+        )
+        file_info = cursor.fetchone()
+        
+        if not file_info:
+            return jsonify({'error': 'File not found'}), 404
+        
+        # Update last_read timestamp
+        cursor.execute(
+            'UPDATE files SET last_read = %s WHERE file_id = %s',
+            (datetime.now().date(), file_id)
+        )
+        
+        connection.commit()
+        cursor.close()
+        connection.close()
+        
+        return jsonify({
+            'success': True,
+            'redirect_url': f'/book/{file_id}',
+            'filename': file_info[0]
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to select file: {str(e)}'}), 500
+@app.route('/test-book')
+def test_book():
+    return "Book route is working!"
 if __name__ == '__main__':
     # Initialize database and test connection on startup
     print("🔄 Initializing database...")
