@@ -1,156 +1,348 @@
 // Global variables
-        const fileId = '{{ file_id }}';
-        let currentPage = 1;
-        let totalPages = 0;
-        const pageCache = new Map();
+const fileId = '{{ file_id }}';
+let totalPages = 0;
+let currentPageNum = 1;
 
-        // Initialize the book reader
-        async function initializeBook() {
-            try {
-                // Get total pages
-                const response = await fetch(`/api/book/${fileId}/pages`);
-                const data = await response.json();
-                
-                if (!data.success) {
-                    throw new Error(data.error || 'Failed to load book');
-                }
-                
-                totalPages = data.total_pages;
-                document.getElementById('totalPagesDisplay').textContent = totalPages;
-                
-                // Load first two pages
-                await loadCurrentPages();
-                
-            } catch (error) {
-                showError('Failed to initialize book: ' + error.message);
-            }
+// Initialize the book reader with linked list
+async function initializeBook() {
+    try {
+        showLoading('Initializing book reader...');
+        
+        // Initialize PDF with linked list structure
+        const response = await fetch(`/api/book/${fileId}/initialize`);
+        const data = await response.json();
+        
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to initialize book');
         }
+        
+        totalPages = data.total_pages;
+        document.getElementById('totalPagesDisplay').textContent = totalPages;
+        
+        // Load first spread using linked list
+        await loadCurrentSpread();
+        
+        hideLoading();
+        
+    } catch (error) {
+        hideLoading();
+        showError('Failed to initialize book: ' + error.message);
+    }
+}
 
-        // Load current page(s) for book view
-        async function loadCurrentPages() {
-            const leftPageNum = currentPage;
-            const rightPageNum = currentPage + 1;
-            
-            // Add page turning animation
-            const book = document.querySelector('.book');
-            book.classList.add('page-turning');
-            setTimeout(() => book.classList.remove('page-turning'), 600);
-            
-            // Load left page
-            if (leftPageNum <= totalPages) {
-                loadPageImage('leftPage', leftPageNum);
-            } else {
-                document.getElementById('leftPage').innerHTML = '<div style="color: #8b4513; font-family: \'Crimson Text\', serif; text-align: center;">No more pages</div>';
-            }
-            
-            // Load right page
-            if (rightPageNum <= totalPages) {
-                loadPageImage('rightPage', rightPageNum);
-            } else {
-                document.getElementById('rightPage').innerHTML = '<div style="color: #8b4513; font-family: \'Crimson Text\', serif; text-align: center;">End of book</div>';
-            }
-            
-            updateNavigation();
+// Load current spread using linked list
+async function loadCurrentSpread() {
+    try {
+        showPageTransition();
+        
+        const response = await fetch(`/api/book/${fileId}/current-spread`);
+        const data = await response.json();
+        
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to load pages');
         }
+        
+        currentPageNum = data.current_page_num;
+        
+        // Update left page
+        const leftPageElement = document.getElementById('leftPage');
+        if (data.left_page) {
+            leftPageElement.innerHTML = `
+                <img src="${data.left_page.image_data}" alt="Page ${data.left_page.page_number}">
+                <div class="page-number">${data.left_page.page_number}</div>
+            `;
+        } else {
+            leftPageElement.innerHTML = '<div class="empty-page">No page</div>';
+        }
+        
+        // Update right page
+        const rightPageElement = document.getElementById('rightPage');
+        if (data.right_page) {
+            rightPageElement.innerHTML = `
+                <img src="${data.right_page.image_data}" alt="Page ${data.right_page.page_number}">
+                <div class="page-number">${data.right_page.page_number}</div>
+            `;
+        } else {
+            rightPageElement.innerHTML = '<div class="empty-page">End of book</div>';
+        }
+        
+        updateNavigation();
+        hidePageTransition();
+        
+    } catch (error) {
+        hidePageTransition();
+        showError('Failed to load pages: ' + error.message);
+    }
+}
 
-        // Load a single page image
-        async function loadPageImage(elementId, pageNum) {
-            const element = document.getElementById(elementId);
-            
-            try {
-                // Show loading
-                element.innerHTML = `
-                    <div class="page-loading">
-                        <div class="spinner"></div>
-                        <div>Loading page ${pageNum}...</div>
-                    </div>
-                `;
-                
-                // Check cache first
-                if (pageCache.has(pageNum)) {
-                    const imageData = pageCache.get(pageNum);
-                    element.innerHTML = `
-                        <img src="${imageData}" alt="Page ${pageNum}">
-                        <div class="page-number">${pageNum}</div>
-                    `;
-                    return;
-                }
-                
-                // Fetch page from server
-                const response = await fetch(`/api/book/${fileId}/page/${pageNum}`);
-                const data = await response.json();
-                
-                if (!data.success) {
-                    throw new Error(data.error || 'Failed to load page');
-                }
-                
-                // Cache and display the image
-                pageCache.set(pageNum, data.image);
-                element.innerHTML = `
-                    <img src="${data.image}" alt="Page ${pageNum}">
-                    <div class="page-number">${pageNum}</div>
-                `;
-                
-            } catch (error) {
-                element.innerHTML = `<div style="color: #8b4513; font-family: 'Crimson Text', serif; text-align: center; padding: 20px;">Error loading page ${pageNum}:<br>${error.message}</div>`;
+// Navigation functions using linked list
+async function nextPage() {
+    try {
+        const response = await fetch(`/api/book/${fileId}/navigate/next`);
+        const data = await response.json();
+        
+        if (!data.success) {
+            if (data.error.includes('Cannot navigate')) {
+                return; // Already at end
             }
+            throw new Error(data.error);
         }
+        
+        // Update display with new spread data
+        await updateSpreadFromData(data);
+        
+    } catch (error) {
+        showError('Failed to navigate: ' + error.message);
+    }
+}
 
-        // Navigation functions
-        function nextPage() {
-            if (currentPage + 2 <= totalPages) {
-                currentPage += 2;
-                loadCurrentPages();
+async function previousPage() {
+    try {
+        const response = await fetch(`/api/book/${fileId}/navigate/prev`);
+        const data = await response.json();
+        
+        if (!data.success) {
+            if (data.error.includes('Cannot navigate')) {
+                return; // Already at beginning
             }
+            throw new Error(data.error);
         }
+        
+        // Update display with new spread data
+        await updateSpreadFromData(data);
+        
+    } catch (error) {
+        showError('Failed to navigate: ' + error.message);
+    }
+}
 
-        function previousPage() {
-            if (currentPage > 1) {
-                currentPage = Math.max(1, currentPage - 2);
-                loadCurrentPages();
-            }
+async function goToPage(pageNumber) {
+    try {
+        showPageTransition();
+        
+        const response = await fetch(`/api/book/${fileId}/goto/${pageNumber}`);
+        const data = await response.json();
+        
+        if (!data.success) {
+            throw new Error(data.error);
         }
+        
+        await updateSpreadFromData(data);
+        
+    } catch (error) {
+        hidePageTransition();
+        showError('Failed to go to page: ' + error.message);
+    }
+}
 
-        function updateNavigation() {
-            const prevBtn = document.getElementById('prevBtn');
-            const nextBtn = document.getElementById('nextBtn');
-            const currentPageDisplay = document.getElementById('currentPageDisplay');
-            
-            // Update page display
-            const leftPage = currentPage;
-            const rightPage = Math.min(currentPage + 1, totalPages);
-            currentPageDisplay.textContent = leftPage === rightPage ? leftPage : `${leftPage}-${rightPage}`;
-            
-            // Update button states
-            prevBtn.disabled = currentPage <= 1;
-            nextBtn.disabled = currentPage + 1 >= totalPages;
+// Helper function to update spread from API data
+async function updateSpreadFromData(data) {
+    currentPageNum = data.current_page_num;
+    
+    // Update left page
+    const leftPageElement = document.getElementById('leftPage');
+    if (data.left_page) {
+        leftPageElement.innerHTML = `
+            <img src="${data.left_page.image_data}" alt="Page ${data.left_page.page_number}">
+            <div class="page-number">${data.left_page.page_number}</div>
+        `;
+    } else {
+        leftPageElement.innerHTML = '<div class="empty-page">No page</div>';
+    }
+    
+    // Update right page
+    const rightPageElement = document.getElementById('rightPage');
+    if (data.right_page) {
+        rightPageElement.innerHTML = `
+            <img src="${data.right_page.image_data}" alt="Page ${data.right_page.page_number}">
+            <div class="page-number">${data.right_page.page_number}</div>
+        `;
+    } else {
+        rightPageElement.innerHTML = '<div class="empty-page">End of book</div>';
+    }
+    
+    updateNavigation();
+    hidePageTransition();
+}
+
+// Update navigation buttons and page display
+function updateNavigation() {
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const currentPageDisplay = document.getElementById('currentPageDisplay');
+    
+    // Calculate right page number
+    const rightPageNum = Math.min(currentPageNum + 1, totalPages);
+    
+    // Update page display
+    if (currentPageNum === rightPageNum) {
+        currentPageDisplay.textContent = currentPageNum;
+    } else {
+        currentPageDisplay.textContent = `${currentPageNum}-${rightPageNum}`;
+    }
+    
+    // Update button states
+    prevBtn.disabled = currentPageNum <= 1;
+    nextBtn.disabled = currentPageNum >= totalPages;
+}
+
+// UI Helper functions
+function showLoading(message = 'Loading...') {
+    const loadingDiv = document.createElement('div');
+    loadingDiv.id = 'loadingOverlay';
+    loadingDiv.className = 'loading-overlay';
+    loadingDiv.innerHTML = `
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <div class="loading-text">${message}</div>
+        </div>
+    `;
+    document.body.appendChild(loadingDiv);
+}
+
+function hideLoading() {
+    const loadingDiv = document.getElementById('loadingOverlay');
+    if (loadingDiv) {
+        loadingDiv.remove();
+    }
+}
+
+function showPageTransition() {
+    const book = document.querySelector('.book');
+    book.classList.add('page-turning');
+}
+
+function hidePageTransition() {
+    const book = document.querySelector('.book');
+    book.classList.remove('page-turning');
+}
+
+function showError(message) {
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'error-message';
+    errorDiv.innerHTML = `
+        <div class="error-content">
+            <span class="error-icon">⚠</span>
+            <span class="error-text">${message}</span>
+            <button class="error-close" onclick="this.parentElement.parentElement.remove()">×</button>
+        </div>
+    `;
+    document.body.appendChild(errorDiv);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        if (errorDiv.parentNode) {
+            errorDiv.remove();
         }
+    }, 5000);
+}
 
-        function showError(message) {
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'error-message';
-            errorDiv.textContent = message;
-            document.body.appendChild(errorDiv);
-            
-            setTimeout(() => {
-                if (errorDiv.parentNode) {
-                    errorDiv.parentNode.removeChild(errorDiv);
-                }
-            }, 5000);
+// Page input functionality
+function createPageInput() {
+    const pageInfo = document.querySelector('.page-info');
+    const currentDisplay = document.getElementById('currentPageDisplay');
+    
+    // Create input element
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = 1;
+    input.max = totalPages;
+    input.value = currentPageNum;
+    input.className = 'page-input';
+    input.style.width = currentDisplay.offsetWidth + 'px';
+    
+    // Replace display with input
+    currentDisplay.style.display = 'none';
+    pageInfo.insertBefore(input, currentDisplay);
+    input.focus();
+    input.select();
+    
+    // Handle input events
+    input.addEventListener('blur', handlePageInputSubmit);
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            handlePageInputSubmit();
+        } else if (e.key === 'Escape') {
+            cancelPageInput();
         }
+    });
+    
+    function handlePageInputSubmit() {
+        const newPage = parseInt(input.value);
+        if (newPage >= 1 && newPage <= totalPages && newPage !== currentPageNum) {
+            goToPage(newPage);
+        }
+        cancelPageInput();
+    }
+    
+    function cancelPageInput() {
+        input.remove();
+        currentDisplay.style.display = 'inline';
+    }
+}
 
-        // Keyboard navigation
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'ArrowRight' || e.key === ' ') {
-                e.preventDefault();
-                nextPage();
-            } else if (e.key === 'ArrowLeft') {
-                e.preventDefault();
-                previousPage();
-            } else if (e.key === 'Escape') {
-                window.location.href = '/';
-            }
-        });
+// Event Listeners
 
-        // Initialize when page loads
-        document.addEventListener('DOMContentLoaded', initializeBook);
+// Keyboard navigation
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowRight' || e.key === ' ') {
+        e.preventDefault();
+        nextPage();
+    } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        previousPage();
+    } else if (e.key === 'Escape') {
+        // Cleanup session before leaving
+        fetch(`/api/book/${fileId}/cleanup`, { method: 'POST' });
+        window.location.href = '/';
+    } else if (e.key === 'g' || e.key === 'G') {
+        e.preventDefault();
+        createPageInput();
+    }
+});
+
+// Click on page display to edit
+document.addEventListener('DOMContentLoaded', function() {
+    const currentPageDisplay = document.getElementById('currentPageDisplay');
+    if (currentPageDisplay) {
+        currentPageDisplay.addEventListener('click', createPageInput);
+        currentPageDisplay.style.cursor = 'pointer';
+        currentPageDisplay.title = 'Click to go to page';
+    }
+});
+
+// Touch/swipe support for mobile
+let touchStartX = 0;
+let touchEndX = 0;
+
+document.addEventListener('touchstart', function(e) {
+    touchStartX = e.changedTouches[0].screenX;
+});
+
+document.addEventListener('touchend', function(e) {
+    touchEndX = e.changedTouches[0].screenX;
+    handleSwipe();
+});
+
+function handleSwipe() {
+    const swipeThreshold = 50;
+    const diff = touchStartX - touchEndX;
+    
+    if (Math.abs(diff) > swipeThreshold) {
+        if (diff > 0) {
+            // Swiped left - next page
+            nextPage();
+        } else {
+            // Swiped right - previous page
+            previousPage();
+        }
+    }
+}
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', function() {
+    fetch(`/api/book/${fileId}/cleanup`, { method: 'POST' });
+});
+
+// Initialize when page loads
+document.addEventListener('DOMContentLoaded', initializeBook);

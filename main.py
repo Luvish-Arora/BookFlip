@@ -7,6 +7,9 @@ import mysql.connector
 from mysql.connector import Error
 from datetime import datetime
 from functools import wraps
+import sys
+print("Running with:", sys.executable)
+import fitz  
 
 app = Flask(__name__)
 
@@ -965,7 +968,7 @@ def view_book(file_id):
 def get_book_pages(file_id):
     """Get total pages count for a PDF"""
     try:
-        import PyMuPDF as fitz  # You'll need: pip install PyMuPDF
+          # You'll need: pip install PyMuPDF
         
         connection = get_db_connection()
         if connection is None:
@@ -1010,7 +1013,7 @@ def get_book_pages(file_id):
 def get_book_page(file_id, page_num):
     """Get a specific page as base64 image"""
     try:
-        import PyMuPDF as fitz
+        import fitz
         import base64
         
         connection = get_db_connection()
@@ -1112,6 +1115,320 @@ def select_file(file_id):
 @app.route('/test-book')
 def test_book():
     return "Book route is working!"
+
+# Add these classes to your Flask app.py file
+
+class PDFPageNode:
+    """Node for linked list representing a PDF page"""
+    def __init__(self, page_number, page_data=None):
+        self.page_number = page_number
+        self.page_data = page_data  # Base64 image data
+        self.next = None
+        self.prev = None
+        self.is_loaded = False
+
+class PDFLinkedList:
+    """Doubly linked list for managing PDF pages"""
+    def __init__(self, total_pages):
+        self.head = None
+        self.tail = None
+        self.current = None
+        self.total_pages = total_pages
+        self.page_nodes = {}  # Dictionary for O(1) page access
+        self._initialize_list()
+    
+    def _initialize_list(self):
+        """Initialize the linked list with all page nodes"""
+        for page_num in range(1, self.total_pages + 1):
+            node = PDFPageNode(page_num)
+            self.page_nodes[page_num] = node
+            
+            if self.head is None:
+                self.head = node
+                self.current = node
+            else:
+                self.tail.next = node
+                node.prev = self.tail
+            
+            self.tail = node
+    
+    def get_page_node(self, page_number):
+        """Get a specific page node"""
+        return self.page_nodes.get(page_number)
+    
+    def load_page_data(self, page_number, page_data):
+        """Load data for a specific page"""
+        node = self.get_page_node(page_number)
+        if node:
+            node.page_data = page_data
+            node.is_loaded = True
+            return True
+        return False
+    
+    def get_current_spread(self):
+        """Get current two-page spread for book view"""
+        if not self.current:
+            return None, None
+        
+        left_page = self.current
+        right_page = self.current.next if self.current.next else None
+        
+        return left_page, right_page
+    
+    def next_spread(self):
+        """Move to next two-page spread"""
+        if self.current and self.current.next:
+            if self.current.next.next:  # Move by 2 pages
+                self.current = self.current.next.next
+            else:  # Last page
+                self.current = self.current.next
+            return True
+        return False
+    
+    def prev_spread(self):
+        """Move to previous two-page spread"""
+        if self.current and self.current.prev:
+            if self.current.prev.prev:  # Move by 2 pages
+                self.current = self.current.prev.prev
+            else:  # First page
+                self.current = self.head
+            return True
+        return False
+    
+    def go_to_page(self, page_number):
+        """Go to a specific page"""
+        node = self.get_page_node(page_number)
+        if node:
+            self.current = node
+            return True
+        return False
+
+# Global dictionary to store PDF linked lists for each user session
+pdf_sessions = {}
+
+def get_pdf_session_key(user_id, file_id):
+    """Generate session key for PDF linked list"""
+    return f"{user_id}_{file_id}"
+
+# Modified Flask routes
+
+@app.route('/api/book/<file_id>/initialize')
+@login_required
+def initialize_pdf_linkedlist(file_id):
+    """Initialize PDF with linked list structure"""
+    try:
+        import fitz
+        
+        connection = get_db_connection()
+        if connection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+        
+        cursor = connection.cursor()
+        
+        # Get stored filename
+        cursor.execute(
+            '''SELECT stored_filename FROM files 
+               WHERE file_id = %s AND user_id = %s''',
+            (file_id, session['user_id'])
+        )
+        file_info = cursor.fetchone()
+        
+        if not file_info:
+            return jsonify({'error': 'File not found'}), 404
+        
+        cursor.close()
+        connection.close()
+        
+        # Open PDF and get page count
+        pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], file_info[0])
+        if not os.path.exists(pdf_path):
+            return jsonify({'error': 'PDF file not found on disk'}), 404
+        
+        pdf_doc = fitz.open(pdf_path)
+        total_pages = pdf_doc.page_count
+        pdf_doc.close()
+        
+        # Create linked list for this PDF session
+        session_key = get_pdf_session_key(session['user_id'], file_id)
+        pdf_sessions[session_key] = PDFLinkedList(total_pages)
+        
+        return jsonify({
+            'success': True,
+            'total_pages': total_pages,
+            'file_id': file_id,
+            'session_key': session_key
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to initialize PDF: {str(e)}'}), 500
+
+@app.route('/api/book/<file_id>/current-spread')
+@login_required
+def get_current_spread(file_id):
+    """Get current two-page spread using linked list"""
+    try:
+        session_key = get_pdf_session_key(session['user_id'], file_id)
+        pdf_list = pdf_sessions.get(session_key)
+        
+        if not pdf_list:
+            return jsonify({'error': 'PDF session not found. Please refresh the page.'}), 404
+        
+        left_page, right_page = pdf_list.get_current_spread()
+        
+        # Load page data if not already loaded
+        result = {
+            'success': True,
+            'left_page': None,
+            'right_page': None,
+            'current_page_num': left_page.page_number if left_page else 1,
+            'total_pages': pdf_list.total_pages
+        }
+        
+        if left_page:
+            if not left_page.is_loaded:
+                # Remove 'await' and call synchronously
+                left_page.page_data = load_page_from_pdf(file_id, left_page.page_number)
+                left_page.is_loaded = True
+            
+            result['left_page'] = {
+                'page_number': left_page.page_number,
+                'image_data': left_page.page_data
+            }
+        
+        if right_page:
+            if not right_page.is_loaded:
+                # Remove 'await' and call synchronously
+                right_page.page_data = load_page_from_pdf(file_id, right_page.page_number)
+                right_page.is_loaded = True
+            
+            result['right_page'] = {
+                'page_number': right_page.page_number,
+                'image_data': right_page.page_data
+            }
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to get current spread: {str(e)}'}), 500
+
+@app.route('/api/book/<file_id>/navigate/<direction>')
+@login_required
+def navigate_pdf(file_id, direction):
+    """Navigate PDF using linked list (next/prev)"""
+    try:
+        session_key = get_pdf_session_key(session['user_id'], file_id)
+        pdf_list = pdf_sessions.get(session_key)
+        
+        if not pdf_list:
+            return jsonify({'error': 'PDF session not found. Please refresh the page.'}), 404
+        
+        success = False
+        if direction == 'next':
+            success = pdf_list.next_spread()
+        elif direction == 'prev':
+            success = pdf_list.prev_spread()
+        
+        if not success:
+            return jsonify({'error': f'Cannot navigate {direction}'}), 400
+        
+        # Return current spread after navigation
+        return get_current_spread(file_id)
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to navigate: {str(e)}'}), 500
+
+@app.route('/api/book/<file_id>/goto/<int:page_number>')
+@login_required
+def goto_page(file_id, page_number):
+    """Go to a specific page using linked list"""
+    try:
+        session_key = get_pdf_session_key(session['user_id'], file_id)
+        pdf_list = pdf_sessions.get(session_key)
+        
+        if not pdf_list:
+            return jsonify({'error': 'PDF session not found. Please refresh the page.'}), 404
+        
+        if not pdf_list.go_to_page(page_number):
+            return jsonify({'error': 'Invalid page number'}), 400
+        
+        # Return current spread after navigation
+        return get_current_spread(file_id)
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to go to page: {str(e)}'}), 500
+
+def load_page_from_pdf(file_id, page_num):
+    """Helper function to load page data from PDF file"""
+    try:
+        import fitz
+        import base64
+        
+        connection = get_db_connection()
+        if connection is None:
+            return None
+        
+        cursor = connection.cursor()
+        
+        # Get stored filename
+        cursor.execute(
+            '''SELECT stored_filename FROM files 
+               WHERE file_id = %s AND user_id = %s''',
+            (file_id, session['user_id'])
+        )
+        file_info = cursor.fetchone()
+        
+        if not file_info:
+            return None
+        
+        cursor.close()
+        connection.close()
+        
+        # Open PDF and get page
+        pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], file_info[0])
+        if not os.path.exists(pdf_path):
+            return None
+        
+        pdf_doc = fitz.open(pdf_path)
+        
+        # Validate page number
+        if page_num < 1 or page_num > pdf_doc.page_count:
+            pdf_doc.close()
+            return None
+        
+        # Get page (0-indexed)
+        page = pdf_doc.load_page(page_num - 1)
+        
+        # Render page to image (higher quality)
+        mat = fitz.Matrix(2.0, 2.0)  # 2x zoom for better quality
+        pix = page.get_pixmap(matrix=mat)
+        img_data = pix.tobytes("png")
+        
+        # Convert to base64
+        img_base64 = f"data:image/png;base64,{base64.b64encode(img_data).decode()}"
+        
+        pdf_doc.close()
+        
+        return img_base64
+        
+    except Exception as e:
+        print(f"Error loading page {page_num}: {e}")    
+        return None
+    
+# Cleanup function to remove old PDF sessions
+@app.route('/api/book/<file_id>/cleanup')
+@login_required
+def cleanup_pdf_session(file_id):
+    """Clean up PDF session when user leaves"""
+    try:
+        session_key = get_pdf_session_key(session['user_id'], file_id)
+        if session_key in pdf_sessions:
+            del pdf_sessions[session_key]
+        
+        return jsonify({'success': True, 'message': 'Session cleaned up'})
+        
+    except Exception as e:
+        return jsonify({'error': f'Cleanup failed: {str(e)}'}), 500
+    
 if __name__ == '__main__':
     # Initialize database and test connection on startup
     print("🔄 Initializing database...")
